@@ -153,25 +153,36 @@ MainWindow::MainWindow(QWidget *parent)
     ui->viewFiles->verticalHeader()->setResizeMode(QHeaderView::Fixed);
 #endif
 
-    model = new QStandardItemModel(0, 3, this);
+    model = new QStandardItemModel(0, static_cast<int>(TreeColumns::Count), this);
+
     headers.clear();
-    headers << tr("Name") << tr("Type") << tr("Value");
+    for (int i = 0; i < static_cast<int>(TreeColumns::Count); i++)
+        headers << QString();
+
+    headers[static_cast<int>(TreeColumns::Name)] = tr("Name");
+    headers[static_cast<int>(TreeColumns::Type)] = tr("Type");
+    headers[static_cast<int>(TreeColumns::Hex)] = "Hex";
+    headers[static_cast<int>(TreeColumns::Value)] = tr("Value");
+
     model->invisibleRootItem()->setData(Bencode::Dictionary);
     model->setHorizontalHeaderLabels(headers);
-    model->horizontalHeaderItem(0)->setTextAlignment(Qt::AlignLeft);
-    model->horizontalHeaderItem(1)->setTextAlignment(Qt::AlignLeft);
-    model->horizontalHeaderItem(2)->setTextAlignment(Qt::AlignLeft);
+    model->horizontalHeaderItem(static_cast<int>(TreeColumns::Name))->setTextAlignment(Qt::AlignLeft);
+    model->horizontalHeaderItem(static_cast<int>(TreeColumns::Type))->setTextAlignment(Qt::AlignLeft);
+    model->horizontalHeaderItem(static_cast<int>(TreeColumns::Hex))->setTextAlignment(Qt::AlignLeft);
+    model->horizontalHeaderItem(static_cast<int>(TreeColumns::Value))->setTextAlignment(Qt::AlignLeft);
     ui->treeJson->setModel(model);
 #ifdef HAVE_QT5
-    ui->treeJson->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    ui->treeJson->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    ui->treeJson->header()->setSectionResizeMode(static_cast<int>(TreeColumns::Name), QHeaderView::ResizeToContents);
+    ui->treeJson->header()->setSectionResizeMode(static_cast<int>(TreeColumns::Type), QHeaderView::ResizeToContents);
+    ui->treeJson->header()->setSectionResizeMode(static_cast<int>(TreeColumns::Hex), QHeaderView::ResizeToContents);
 #else
-    ui->treeJson->header()->setResizeMode(0, QHeaderView::ResizeToContents);
-    ui->treeJson->header()->setResizeMode(1, QHeaderView::ResizeToContents);
+    ui->treeJson->header()->setResizeMode(static_cast<int>(TreeColumns::Name), QHeaderView::ResizeToContents);
+    ui->treeJson->header()->setResizeMode(static_cast<int>(TreeColumns::Type), QHeaderView::ResizeToContents);
+    ui->treeJson->header()->setResizeMode(static_cast<int>(TreeColumns::Hex), QHeaderView::ResizeToContents);
 #endif
     QAbstractItemDelegate *delegate = ui->treeJson->itemDelegate();
-    connect(delegate, SIGNAL(closeEditor(QWidget*, QAbstractItemDelegate::EndEditHint)), SLOT(updateBencodeFromJsonTree()));
-    connect(model, SIGNAL(itemChanged(QStandardItem*)), SLOT(sortJsonTree(QStandardItem*)));
+    // connect(delegate, SIGNAL(closeEditor(QWidget*, QAbstractItemDelegate::EndEditHint)), SLOT(updateBencodeFromJsonTree()));
+    connect(model, SIGNAL(itemChanged(QStandardItem*)), SLOT(updateJsonTree(QStandardItem*)));
 
     ui->btnNew->setIcon(QIcon(":/icons/text-x-generic.png"));
     ui->btnOpen->setIcon(qApp->style()->standardIcon(QStyle::SP_DialogOpenButton));
@@ -798,31 +809,36 @@ void MainWindow::addTreeItem()
         return;
 
     QList<QStandardItem*> row;
-    row << new QStandardItem();
-    row << new QStandardItem(type);
-    row << new QStandardItem();
-    row[1]->setEditable(false);
+    for (int i = 0; i < static_cast<int>(TreeColumns::Count); i++)
+        row << new QStandardItem();
+
+    row[static_cast<int>(TreeColumns::Type)]->setText(type);
+    row[static_cast<int>(TreeColumns::Type)]->setEditable(false);
+
+    row[static_cast<int>(TreeColumns::Hex)]->setEditable(false);
+
     if (Bencode::typeToStr(Bencode::Dictionary) == type) {
-        row[2]->setEditable(false);
-        row[0]->setData(Bencode::Dictionary);
+        row[static_cast<int>(TreeColumns::Value)]->setEditable(false);
+        row[static_cast<int>(TreeColumns::Name)]->setData(Bencode::Dictionary);
     }
     else if (Bencode::typeToStr(Bencode::List) == type) {
-        row[2]->setEditable(false);
-        row[0]->setData(Bencode::List);
+        row[static_cast<int>(TreeColumns::Value)]->setEditable(false);
+        row[static_cast<int>(TreeColumns::Name)]->setData(Bencode::List);
     }
     else if (Bencode::typeToStr(Bencode::Integer) == type) {
-        row[0]->setData(Bencode::Integer);
+        row[static_cast<int>(TreeColumns::Name)]->setData(Bencode::Integer);
     }
     else if (Bencode::typeToStr(Bencode::String) == type) {
-        row[0]->setData(Bencode::String);
+        row[static_cast<int>(TreeColumns::Name)]->setData(Bencode::String);
+        row[static_cast<int>(TreeColumns::Hex)]->setCheckable(true);
     }
 
     if (item->data() == Bencode::List) {
-        row[0]->setEditable(false);
-        row[0]->setText(QString::number(item->rowCount()));
+        row[static_cast<int>(TreeColumns::Value)]->setEditable(false);
+            row[static_cast<int>(TreeColumns::Name)]->setText(QString::number(item->rowCount()));
     }
     else {
-        row[0]->setText("new item");
+        row[static_cast<int>(TreeColumns::Name)]->setText("new item");
     }
 
     item->appendRow(row);
@@ -899,26 +915,49 @@ void MainWindow::downTreeItem()
     selectionModel->setCurrentIndex(model->indexFromItem(item), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
 }
 
-void MainWindow::sortJsonTree(QStandardItem *item)
+void MainWindow::updateJsonTree(QStandardItem *item)
 {
-    if (item->column() != 0 || !item->parent() || item->parent()->data().toInt() != Bencode::Dictionary)
-        return;
+    if (item->column() == static_cast<int>(TreeColumns::Name) && item->parent() && item->parent()->data().toInt() && Bencode::Dictionary) {
 
-    QString key = item->text();
-    QStandardItem *parent = item->parent();
-    QList<QStandardItem*> row = parent->takeRow(item->row());
+        QString key = item->text();
+        QStandardItem *parent = item->parent();
+        QList<QStandardItem*> row = parent->takeRow(item->row());
 
-    for (int i = 0; i <= parent->rowCount(); ++i) {
-        if (i == parent->rowCount() || parent->child(i)->text() > key) {
-            parent->insertRow(i, row);
-            break;
+        for (int i = 0; i <= parent->rowCount(); ++i) {
+            if (i == parent->rowCount() || parent->child(i)->text() > key) {
+                parent->insertRow(i, row);
+                break;
+            }
+        }
+
+        QItemSelectionModel *selectionModel = ui->treeJson->selectionModel();
+        selectionModel->setCurrentIndex(item->model()->indexFromItem(item), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        selectionModel->select(item->model()->indexFromItem(item), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        ui->treeJson->setFocus();
+    }
+    else if (item->column() == static_cast<int>(TreeColumns::Hex) && item->parent()) {
+        QStandardItem *valueItem = item->parent()->child(item->row(), static_cast<int>(TreeColumns::Value));
+        QString str = valueItem->text();
+        if (item->checkState() == Qt::Checked) {
+            valueItem->setText(valueItem->data().toByteArray().toHex());
+        }
+        else {
+            valueItem->setText(toUnicode(valueItem->data().toByteArray()));
         }
     }
-
-    QItemSelectionModel *selectionModel = ui->treeJson->selectionModel();
-    selectionModel->setCurrentIndex(item->model()->indexFromItem(item), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
-    selectionModel->select(item->model()->indexFromItem(item), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
-    ui->treeJson->setFocus();
+    else if (item->column() == static_cast<int>(TreeColumns::Value) && item->parent()) {
+        QStandardItem *hexItem = item->parent()->child(item->row(), static_cast<int>(TreeColumns::Hex));
+        if (hexItem->isCheckable()) {
+            bool isHex = hexItem->checkState() == Qt::Checked;
+            if (isHex) {
+                item->setData(QByteArray::fromHex(item->text().toLatin1()));
+            }
+            else {
+                item->setData(fromUnicode(item->text()));
+            }
+        }
+    }
+    updateBencodeFromJsonTree();
 }
 
 void MainWindow::updateSimple()
@@ -1056,13 +1095,20 @@ void MainWindow::updateJsonTree()
     model->removeRows(0, model->rowCount());
 
     QList<QStandardItem*> row;
-    row << new QStandardItem("root");
-    row << new QStandardItem(Bencode::typeToStr(Bencode::Dictionary));
-    row << new QStandardItem();
-    row[0]->setData(Bencode::Dictionary);
-    row[0]->setEditable(false);
-    row[1]->setEditable(false);
-    row[2]->setEditable(false);
+    for (int i = 0; i < static_cast<int>(TreeColumns::Count); i++)
+        row << new QStandardItem();
+
+    row[static_cast<int>(TreeColumns::Name)]->setText("root");
+    row[static_cast<int>(TreeColumns::Name)]->setData(Bencode::Dictionary);
+    row[static_cast<int>(TreeColumns::Name)]->setEditable(false);
+
+    row[static_cast<int>(TreeColumns::Type)]->setText(Bencode::typeToStr(Bencode::Dictionary));
+    row[static_cast<int>(TreeColumns::Type)]->setEditable(false);
+
+    row[static_cast<int>(TreeColumns::Hex)]->setEditable(false);
+
+    row[static_cast<int>(TreeColumns::Value)]->setEditable(false);
+
     model->appendRow(row);
 
     if (!_bencode.isDictionary())
@@ -1084,44 +1130,52 @@ void MainWindow::bencodeToStandardItem(QStandardItem *parent, const Bencode &ben
         foreach (const QByteArray &key, keys) {
 
             QList<QStandardItem*> row;
-            row << new QStandardItem(QString::fromLatin1(key));
-            row << new QStandardItem();
-            row << new QStandardItem();
-            row[1]->setEditable(false);
+            for (int i = 0; i < static_cast<int>(TreeColumns::Count); i++)
+                row << new QStandardItem();
 
-            row[0]->setData(map[key].type);
+            row[static_cast<int>(TreeColumns::Name)]->setText(QString::fromLatin1(key));
+            row[static_cast<int>(TreeColumns::Name)]->setData(map[key].type);
+
+            row[static_cast<int>(TreeColumns::Type)]->setEditable(false);
+            row[static_cast<int>(TreeColumns::Hex)]->setEditable(false);
+
 
             switch (map[key].type) {
             case Bencode::List:
-                row[2]->setEditable(false);
-                row[1]->setText(Bencode::typeToStr(Bencode::List));
+                row[static_cast<int>(TreeColumns::Value)]->setEditable(false);
+                row[static_cast<int>(TreeColumns::Type)]->setText(Bencode::typeToStr(Bencode::List));
                 bencodeToStandardItem(row[0], map[key]);
                 break;
 
             case Bencode::Dictionary:
-                row[2]->setEditable(false);
-                row[1]->setText(Bencode::typeToStr(Bencode::Dictionary));
+                row[static_cast<int>(TreeColumns::Value)]->setEditable(false);
+                row[static_cast<int>(TreeColumns::Type)]->setText(Bencode::typeToStr(Bencode::Dictionary));
                 bencodeToStandardItem(row[0], map[key]);
                 break;
 
             case Bencode::String:
-                row[1]->setText(Bencode::typeToStr(Bencode::String));
+                row[static_cast<int>(TreeColumns::Hex)]->setCheckable(true);
+                row[static_cast<int>(TreeColumns::Type)]->setText(Bencode::typeToStr(Bencode::String));
+                row[static_cast<int>(TreeColumns::Value)]->setData(map[key].string);
+
                 if (key != QByteArray("pieces") &&
                     key != QByteArray("originator") &&
                     key != QByteArray("certificate") &&
                     key != QByteArray("signature")) {
 
-                    row[2]->setText(toUnicode(map[key].string));
+                    row[static_cast<int>(TreeColumns::Value)]->setText(toUnicode(map[key].string));
+                    row[static_cast<int>(TreeColumns::Hex)]->setCheckState(Qt::Unchecked);
                 }
                 else {
-                    row[2]->setText(QString::fromLatin1(map[key].string.toHex()));
+                    row[static_cast<int>(TreeColumns::Value)]->setText(QString::fromLatin1(map[key].string.toHex()));
+                    row[static_cast<int>(TreeColumns::Hex)]->setCheckState(Qt::Checked);
                 }
 
                 break;
 
             case Bencode::Integer:
-                row[1]->setText(Bencode::typeToStr(Bencode::Integer));
-                row[2]->setText(QString::number(map[key].integer));
+                row[static_cast<int>(TreeColumns::Type)]->setText(Bencode::typeToStr(Bencode::Integer));
+                row[static_cast<int>(TreeColumns::Value)]->setText(QString::number(map[key].integer));
                 break;
 
             default:
@@ -1135,35 +1189,41 @@ void MainWindow::bencodeToStandardItem(QStandardItem *parent, const Bencode &ben
         BencodeList list = bencode.list;
         for (int i = 0; i < list.size(); ++i) {
             QList<QStandardItem*> row;
-            row << new QStandardItem(QString::number(i));
-            row << new QStandardItem();
-            row << new QStandardItem();
-            row[0]->setEditable(false);
-            row[1]->setEditable(false);
+            for (int i = 0; i < static_cast<int>(TreeColumns::Count); i++)
+                row << new QStandardItem();
 
-            row[0]->setData(list[i].type);
+            row[static_cast<int>(TreeColumns::Name)]->setEditable(false);
+            row[static_cast<int>(TreeColumns::Name)]->setText(QString::number(i));
+            row[static_cast<int>(TreeColumns::Name)]->setData(list[i].type);
+
+            row[static_cast<int>(TreeColumns::Type)]->setEditable(false);
+
+            row[static_cast<int>(TreeColumns::Hex)]->setEditable(false);
 
             switch (list[i].type) {
             case Bencode::List:
-                row[2]->setEditable(false);
-                row[1]->setText(Bencode::typeToStr(Bencode::List));
+                row[static_cast<int>(TreeColumns::Value)]->setEditable(false);
+                row[static_cast<int>(TreeColumns::Type)]->setText(Bencode::typeToStr(Bencode::List));
                 bencodeToStandardItem(row[0], list[i]);
                 break;
 
             case Bencode::Dictionary:
-                row[2]->setEditable(false);
-                row[1]->setText(Bencode::typeToStr(Bencode::Dictionary));
+                row[static_cast<int>(TreeColumns::Value)]->setEditable(false);
+                row[static_cast<int>(TreeColumns::Type)]->setText(Bencode::typeToStr(Bencode::Dictionary));
                 bencodeToStandardItem(row[0], list[i]);
                 break;
 
             case Bencode::String:
-                row[1]->setText(Bencode::typeToStr(Bencode::String));
-                row[2]->setText(toUnicode(list[i].string));
+                row[static_cast<int>(TreeColumns::Value)]->setData(list[i].string);
+                row[static_cast<int>(TreeColumns::Type)]->setText(Bencode::typeToStr(Bencode::String));
+                row[static_cast<int>(TreeColumns::Value)]->setText(toUnicode(list[i].string));
+                row[static_cast<int>(TreeColumns::Hex)]->setCheckable(true);
+                row[static_cast<int>(TreeColumns::Hex)]->setCheckState(Qt::Unchecked);
                 break;
 
             case Bencode::Integer:
-                row[1]->setText(Bencode::typeToStr(Bencode::Integer));
-                row[2]->setText(QString::number(list[i].integer));
+                row[static_cast<int>(TreeColumns::Type)]->setText(Bencode::typeToStr(Bencode::Integer));
+                row[static_cast<int>(TreeColumns::Value)]->setText(QString::number(list[i].integer));
                 break;
 
             default:
@@ -1197,14 +1257,15 @@ void MainWindow::standardItemToBencode(Bencode &parent, QStandardItem *item)
                 break;
 
             case Bencode::Integer:
-                parent[key] = item->child(i, 2)->text().toLongLong();
+                parent[key] = item->child(i, static_cast<int>(TreeColumns::Value))->text().toLongLong();
                 break;
 
             case Bencode::String:
-                if (key != QByteArray("pieces"))
-                    parent[key] = fromUnicode(item->child(i, 2)->text());
+
+                if (item->child(i, static_cast<int>(TreeColumns::Hex))->checkState() == Qt::Unchecked)
+                    parent[key] = fromUnicode(item->child(i, static_cast<int>(TreeColumns::Value))->text());
                 else
-                    parent[key] = QByteArray::fromHex(item->child(i, 2)->text().toLatin1());
+                    parent[key] = QByteArray::fromHex(item->child(i, static_cast<int>(TreeColumns::Value))->text().toLatin1());
                 break;
 
             default:
@@ -1229,11 +1290,14 @@ void MainWindow::standardItemToBencode(Bencode &parent, QStandardItem *item)
                 break;
 
             case Bencode::Integer:
-                parent[i] = item->child(i, 2)->text().toLongLong();
+                parent[i] = item->child(i, static_cast<int>(TreeColumns::Value))->text().toLongLong();
                 break;
 
             case Bencode::String:
-                parent[i] = fromUnicode(item->child(i, 2)->text());
+                if (item->child(i, static_cast<int>(TreeColumns::Hex))->checkState() == Qt::Unchecked)
+                    parent[i] = fromUnicode(item->child(i, static_cast<int>(TreeColumns::Value))->text());
+                else
+                    parent[i] = QByteArray::fromHex(item->child(i, static_cast<int>(TreeColumns::Value))->text().toLatin1());
                 break;
 
             default:

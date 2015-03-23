@@ -53,6 +53,9 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
+
+    enum class TreeColumns { Name, Type, Hex, Value, Count };
+
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
 
@@ -100,7 +103,7 @@ public slots:
     void removeTreeItem();
     void upTreeItem();
     void downTreeItem();
-    void sortJsonTree(QStandardItem *item);
+    void updateJsonTree(QStandardItem *item);
 
 private:
     enum Tabs { SimpleTab, FilesTab, JsonTreeTab, RawTab, LogTab };
